@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SignSpeak AI – Cosmic Mode 🌌</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <style>
+    html, body {
+      margin: 0;
+      padding: 0;
+      height: 100%;
+      overflow: hidden;
+      font-family: 'Segoe UI', sans-serif;
+      background: black;
+      color: #fff;
+    }
+    canvas#bg {
+      position: fixed;
+      top: 0;
+      left: 0;
+      z-index: 0;
+    }
+    .container {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: rgba(0, 0, 0, 0.6);
+      border-radius: 20px;
+      padding: 30px 40px;
+      text-align: center;
+      z-index: 10;
+      backdrop-filter: blur(10px);
+      border: 2px solid #00ffff88;
+      box-shadow: 0 0 60px #00ffff55, 0 0 120px #ff00ff33;
+    }
+    h1 {
+      font-size: 2.5rem;
+      color: #00ffff;
+      text-shadow: 0 0 20px #00ffff, 0 0 50px #ff00ff;
+    }
+    #sign-display, #sentence-display {
+      margin-top: 20px;
+      font-size: 1.5rem;
+      font-weight: bold;
+    }
+    #sign {
+      color: #ffeb3b;
+      text-shadow: 0 0 10px #ffeb3b;
+    }
+    #sentence {
+      color: #00ffc3;
+      text-shadow: 0 0 10px #00ffc3;
+    }
+    #webcam {
+      width: 480px;
+      height: 360px;
+      margin-top: 15px;
+      border-radius: 15px;
+      border: 3px solid #00ffff;
+      box-shadow: 0 0 30px #00ffffaa;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="bg"></canvas>
+  <div class="container">
+    <h1>🌟 SignSpeak AI – Cosmic Mode 🌟</h1>
+    <video id="webcam" autoplay muted playsinline></video>
+    <div id="sign-display">🖐️ Detected Sign: <span id="sign">Loading...</span></div>
+    <div id="sentence-display">📝 Sentence: <span id="sentence">...</span></div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/three@0.150.1/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+  <script>
+    // THREE.js background starfield + rings
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 1000);
+    camera.position.z = 6;
+
+    const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById('bg'), alpha: true });
+    renderer.setSize(window.innerWidth, window.innerHeight);
+
+    const starGeometry = new THREE.BufferGeometry();
+    const starCount = 1500;
+    const starPositions = new Float32Array(starCount * 3);
+    for (let i = 0; i < starCount * 3; i++) {
+      starPositions[i] = (Math.random() - 0.5) * 100;
+    }
+    starGeometry.setAttribute('position', new THREE.Float32BufferAttribute(starPositions, 3));
+    const starMaterial = new THREE.PointsMaterial({ color: 0x00ffff, size: 0.4, blending: THREE.AdditiveBlending });
+    const stars = new THREE.Points(starGeometry, starMaterial);
+    scene.add(stars);
+
+    const rings = [];
+    for (let i = 0; i < 3; i++) {
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(2.5 + i * 0.7, 0.15, 16, 100),
+        new THREE.MeshStandardMaterial({
+          color: [0xff00ff, 0x00ffff, 0xffff00][i],
+          emissive: [0xff00ff, 0x00ffff, 0xffff00][i]
+        })
+      );
+      ring.position.z = -8;
+      ring.position.y = i * 1.2 - 1.2;
+      ring.scale.set(1.5, 1.5, 1.5);
+      scene.add(ring);
+      rings.push(ring);
+    }
+
+    const light = new THREE.PointLight(0xffffff, 1);
+    light.position.set(0, 0, 10);
+    scene.add(light);
+
+    let mouseX = 0, mouseY = 0;
+    document.addEventListener('mousemove', (e) => {
+      mouseX = (e.clientX / window.innerWidth - 0.5) * 2;
+      mouseY = (e.clientY / window.innerHeight - 0.5) * 2;
+    });
+
+    function animate() {
+      requestAnimationFrame(animate);
+      stars.rotation.y += 0.0005;
+      rings.forEach((ring, i) => {
+        ring.rotation.x += 0.003 + i * 0.001;
+        ring.rotation.y += 0.004 + i * 0.001;
+      });
+      scene.rotation.y += (mouseX - scene.rotation.y) * 0.05;
+      scene.rotation.x += (mouseY - scene.rotation.x) * 0.05;
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // MediaPipe hand detection + logic
+    const video = document.getElementById('webcam');
+    const signEl = document.getElementById('sign');
+    const sentenceEl = document.getElementById('sentence');
+
+    let sentence = "";
+    let lastSign = "";
+    let lastTime = 0;
+
+    navigator.mediaDevices.getUserMedia({ video: true }).then(stream => {
+      video.srcObject = stream;
+    });
+
+    const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 1,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.5
+    });
+
+    const cameraUtils = new Camera(video, {
+      onFrame: async () => {
+        await hands.send({ image: video });
+      },
+      width: 480,
+      height: 360
+    });
+    cameraUtils.start();
+
+    function getSignFromLandmarks(lm) {
+      const y = (i) => lm[i].y;
+      const folded = [8, 12, 16, 20].map(i => y(i) > y(i - 2));
+      const thumbFolded = y(4) > y(3);
+
+      if (folded.every(v => v)) return "A";
+      if (folded.every(v => !v)) return "B";
+      if (!folded[0] && folded[2] && folded[3]) return "C";
+      if (folded[1] && folded[2] && folded[3]) return "D";
+      if (folded.join(',') === 'true,true,true,true') return "E";
+      if (!folded[0] && folded[1] && folded[3]) return "F";
+      if (!thumbFolded && !folded[0] && folded[1] && folded[2] && !folded[3]) return "I LOVE YOU";
+      if (thumbFolded && folded[0] && !folded[1] && !folded[2] && !folded[3]) return "THANK YOU";
+
+      return "Unknown";
+    }
+
+    hands.onResults((results) => {
+      if (!results.multiHandLandmarks[0]) return;
+      const lm = results.multiHandLandmarks[0];
+      const sign = getSignFromLandmarks(lm);
+      signEl.textContent = sign;
+
+      const now = Date.now();
+      if (sign !== "Unknown" && sign !== lastSign && now - lastTime > 2000) {
+        lastSign = sign;
+        lastTime = now;
+
+        if (sign.length === 1) sentence += sign + " ";
+        sentenceEl.textContent = sentence;
+
+        window.speechSynthesis.cancel();
+        window.speechSynthesis.speak(new SpeechSynthesisUtterance(sign));
+      }
+    });
+  </script>
+</body>
+</html>

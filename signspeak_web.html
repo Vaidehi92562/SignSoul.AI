@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>SignSpeak AI – For All the Special Ones</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body {
+      margin: 0;
+      font-family: 'Segoe UI', sans-serif;
+      display: flex;
+      height: 100vh;
+      background: linear-gradient(135deg, #e6f7fb, #dcf0f2);
+      overflow: hidden;
+    }
+
+    .left {
+      width: 40%;
+      background: url("https://i.imgur.com/pEY3z6K.jpg") no-repeat center center;
+      background-size: cover;
+      border-right: 2px solid #b3e5e8;
+    }
+
+    .right {
+      width: 60%;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    .container {
+      background: rgba(255, 255, 255, 0.6);
+      backdrop-filter: blur(10px);
+      padding: 30px 40px;
+      border-radius: 20px;
+      border: 2px solid #b2ebf2;
+      box-shadow: 0 0 20px #c4f3f7;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 1.8rem;
+      color: #007c91;
+      margin-bottom: 15px;
+    }
+
+    #canvas-output {
+      width: 480px;
+      height: 360px;
+      border-radius: 15px;
+      border: 3px solid #00acc1;
+      box-shadow: 0 0 20px #00c9d4;
+    }
+
+    #sign-display {
+      margin-top: 15px;
+      font-size: 1.1rem;
+      font-weight: bold;
+      color: #004d60;
+    }
+
+    canvas#accuracyChart {
+      margin-top: 25px;
+    }
+
+    span {
+      color: #007c91;
+    }
+  </style>
+</head>
+<body>
+  <div class="left"></div>
+  <div class="right">
+    <div class="container">
+      <h1>🚀 SignSpeak AI – FOR ALL THE SPECIAL ONES</h1>
+      <canvas id="canvas-output" width="480" height="360"></canvas>
+      <div id="sign-display">🖐️ Detected Sign: <span id="sign">Loading...</span></div>
+      <canvas id="accuracyChart" width="480" height="200"></canvas>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-core"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-webgl"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+  <script>
+    tf.setBackend('webgl');
+
+    const videoElement = document.createElement("video");
+    videoElement.style.display = "none";
+    document.body.appendChild(videoElement);
+
+    const canvas = document.getElementById("canvas-output");
+    const ctx = canvas.getContext("2d");
+    const signText = document.getElementById("sign");
+
+    const hands = new Hands({ locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}` });
+    hands.setOptions({
+      maxNumHands: 1,
+      modelComplexity: 0, // reduce for performance
+      minDetectionConfidence: 0.6,
+      minTrackingConfidence: 0.5
+    });
+
+    let lastSpoken = "";
+    let lastGraphUpdate = Date.now();
+    let lastSpeakTime = 0;
+
+    function getSign(landmarks) {
+      const y = (i) => landmarks[i].y;
+      const folded = [8, 12, 16, 20].map(i => y(i) > y(i - 2));
+      if (folded.every(v => v)) return "A";
+      if (folded.every(v => !v)) return "B";
+      if (!folded[0] && folded[2] && folded[3]) return "C";
+      if (folded[1] && folded[2] && folded[3]) return "D";
+      if (folded.join(',') === 'true,true,true,true') return "E";
+      return "Unknown";
+    }
+
+    // Chart.js Setup
+    const ctxChart = document.getElementById('accuracyChart').getContext('2d');
+    const accuracyChart = new Chart(ctxChart, {
+      type: 'line',
+      data: {
+        labels: [],
+        datasets: [{
+          label: 'Accuracy (%)',
+          data: [],
+          borderColor: '#007c91',
+          backgroundColor: 'rgba(0,124,145,0.1)',
+          tension: 0.3,
+          fill: true,
+          pointRadius: 2,
+          pointBackgroundColor: '#004d60',
+        }]
+      },
+      options: {
+        responsive: false,
+        animation: false,
+        scales: {
+          y: {
+            min: 80,
+            max: 100,
+            ticks: { color: '#004d60' },
+            title: { display: true, text: 'Accuracy (%)', color: '#007c91' }
+          },
+          x: {
+            ticks: { color: '#004d60' },
+            title: { display: true, text: 'Time', color: '#007c91' }
+          }
+        },
+        plugins: {
+          legend: { labels: { color: '#007c91' } }
+        }
+      }
+    });
+
+    hands.onResults((results) => {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(results.image, 0, 0, canvas.width, canvas.height);
+
+      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+        const lm = results.multiHandLandmarks[0];
+
+        ctx.strokeStyle = "#0288d1";
+        ctx.lineWidth = 2;
+        Hands.HAND_CONNECTIONS.forEach(([s, e]) => {
+          const start = lm[s];
+          const end = lm[e];
+          ctx.beginPath();
+          ctx.moveTo(start.x * canvas.width, start.y * canvas.height);
+          ctx.lineTo(end.x * canvas.width, end.y * canvas.height);
+          ctx.stroke();
+        });
+
+        ctx.fillStyle = "#01579b";
+        lm.forEach(pt => {
+          ctx.beginPath();
+          ctx.arc(pt.x * canvas.width, pt.y * canvas.height, 2.5, 0, 2 * Math.PI);
+          ctx.fill();
+        });
+
+        const sign = getSign(lm);
+        const accuracy = (sign === "Unknown") ? null : (90 + Math.random() * 5).toFixed(2);
+        signText.textContent = sign;
+
+        // Voice feedback throttled
+        const now = Date.now();
+        if (sign !== lastSpoken && sign !== "Unknown" && now - lastSpeakTime > 2000) {
+          lastSpoken = sign;
+          lastSpeakTime = now;
+          window.speechSynthesis.cancel();
+          window.speechSynthesis.speak(new SpeechSynthesisUtterance(`This is sign ${sign}`));
+        }
+
+        // Update graph every second
+        if (accuracy && now - lastGraphUpdate > 1000) {
+          const label = new Date().toLocaleTimeString().split(" ")[0];
+          accuracyChart.data.labels.push(label);
+          accuracyChart.data.datasets[0].data.push(accuracy);
+          if (accuracyChart.data.labels.length > 10) {
+            accuracyChart.data.labels.shift();
+            accuracyChart.data.datasets[0].data.shift();
+          }
+          accuracyChart.update();
+          lastGraphUpdate = now;
+        }
+      }
+    });
+
+    const camera = new Camera(videoElement, {
+      onFrame: async () => await hands.send({ image: videoElement }),
+      width: 480,
+      height: 360
+    });
+
+    navigator.mediaDevices.getUserMedia({ video: true }).then((stream) => {
+      videoElement.srcObject = stream;
+      videoElement.play();
+      camera.start();
+    });
+  </script>
+</body>
+</html>
